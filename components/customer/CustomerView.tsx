@@ -4,7 +4,7 @@ import type { LatLngTuple } from 'leaflet';
 import MapComponent from '../map/MapComponent';
 import { useGeolocation } from '../../hooks/useGeolocation';
 import { getRoute, getAutocomplete, reverseGeocode } from '../../services/ors';
-import { MapPin, LocateFixed, Search, X, Phone, AlertTriangle } from 'lucide-react';
+import { MapPin, LocateFixed, Search, X, Phone, AlertTriangle, Route, Clock } from 'lucide-react';
 import { VEHICLE_ICONS } from '../../constants';
 import { VehicleType } from '../../types';
 import NotificationPopup from '../ui/NotificationPopup';
@@ -71,6 +71,7 @@ const CustomerView: React.FC = () => {
 
     const [route, setRoute] = useState<LatLngTuple[]>([]);
     const [distance, setDistance] = useState<number>(0);
+    const [duration, setDuration] = useState<number>(0);
     const [selectedVehicle, setSelectedVehicle] = useState<VehicleType>(VehicleType.Regular);
     const [tripStatus, setTripStatus] = useState<'idle' | 'pricing' | 'requested' | 'confirmed' | 'ongoing'>('idle');
     const [notification, setNotification] = useState<{ message: string, type: 'info' | 'success' | 'warning' | 'error' } | null>(null);
@@ -152,14 +153,17 @@ const CustomerView: React.FC = () => {
 
                     if (routeData && routeData.features && routeData.features.length > 0 && routeData.features[0].geometry) {
                         const routeCoords = routeData.features[0].geometry.coordinates.map((c: number[]) => [c[1], c[0]] as LatLngTuple);
+                        const summary = routeData.features[0].properties.summary;
                         setRoute(routeCoords);
-                        setDistance(routeData.features[0].properties.summary.distance); // in meters
+                        setDistance(summary.distance); // in meters
+                        setDuration(summary.duration); // in seconds
                         setTripStatus('pricing');
                     } else {
                         console.warn("No route returned from ORS API for the selected points.");
                         setRouteError('تعذر إيجاد مسار بين النقطتين المحددتين. الرجاء تجربة مواقع مختلفة.');
                         setRoute([]);
                         setDistance(0);
+                        setDuration(0);
                         setTripStatus('pricing'); // Keep panel open to show error
                     }
                 } catch (error) {
@@ -167,6 +171,7 @@ const CustomerView: React.FC = () => {
                     setRouteError('تعذر حساب المسار. يرجى التحقق من اتصالك بالإنترنت.');
                     setRoute([]);
                     setDistance(0);
+                    setDuration(0);
                     setTripStatus('pricing'); // Keep panel open to show error
                 }
             }
@@ -232,7 +237,7 @@ const CustomerView: React.FC = () => {
                             placeholder="نقطة الانطلاق"
                             suggestions={pickupSuggestions}
                             onSuggestionClick={(f) => handleSetPickup([f.geometry.coordinates[1], f.geometry.coordinates[0]], f.properties.label)}
-                            onClear={() => { setPickup(null); setPickupQuery(''); setRoute([]); setTripStatus('idle'); setRouteError(null); }}
+                            onClear={() => { setPickup(null); setPickupQuery(''); setRoute([]); setDistance(0); setDuration(0); setTripStatus('idle'); setRouteError(null); }}
                          />
                     </div>
                      <div className="flex-1 flex items-center gap-2">
@@ -243,7 +248,7 @@ const CustomerView: React.FC = () => {
                             placeholder="إلى أين تريد الذهاب؟"
                             suggestions={dropoffSuggestions}
                             onSuggestionClick={(f) => handleSetDropoff([f.geometry.coordinates[1], f.geometry.coordinates[0]], f.properties.label)}
-                            onClear={() => { setDropoff(null); setDropoffQuery(''); setRoute([]); setTripStatus('idle'); setRouteError(null); }}
+                            onClear={() => { setDropoff(null); setDropoffQuery(''); setRoute([]); setDistance(0); setDuration(0); setTripStatus('idle'); setRouteError(null); }}
                          />
                     </div>
                     <button onClick={() => lat && lng && handleSetPickup([lat,lng])} className="p-3 bg-sky-600 hover:bg-sky-500 rounded-lg text-white transition">
@@ -265,6 +270,25 @@ const CustomerView: React.FC = () => {
                        </div>
                     ) : (
                     <>
+                        {distance > 0 && !routeError && (
+                            <div className="bg-slate-900/50 p-3 rounded-lg mb-4 flex items-center justify-around text-center border border-slate-600">
+                                <div className="flex items-center gap-3">
+                                    <Route className="h-6 w-6 text-sky-400" />
+                                    <div>
+                                        <p className="text-slate-400 text-xs">المسافة</p>
+                                        <p className="text-white text-lg font-bold">{(distance / 1000).toFixed(1)} كم</p>
+                                    </div>
+                                </div>
+                                <div className="w-px h-10 bg-slate-600"></div> {/* Divider */}
+                                <div className="flex items-center gap-3">
+                                    <Clock className="h-6 w-6 text-sky-400" />
+                                    <div>
+                                        <p className="text-slate-400 text-xs">الوقت المقدر</p>
+                                        <p className="text-white text-lg font-bold">{Math.round(duration / 60)} دقيقة</p>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                         <h3 className="text-white text-lg font-semibold mb-3">اختر نوع المركبة:</h3>
                         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
                             {Object.values(VehicleType).map((vehicleKey) => {
