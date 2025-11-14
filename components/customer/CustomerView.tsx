@@ -4,7 +4,7 @@ import type { LatLngTuple } from 'leaflet';
 import MapComponent from '../map/MapComponent';
 import { useGeolocation } from '../../hooks/useGeolocation';
 import { getRoute, getAutocomplete, reverseGeocode } from '../../services/ors';
-import { MapPin, LocateFixed, Search, X, Phone } from 'lucide-react';
+import { MapPin, LocateFixed, Search, X, Phone, AlertTriangle } from 'lucide-react';
 import { VEHICLE_ICONS } from '../../constants';
 import { VehicleType } from '../../types';
 import NotificationPopup from '../ui/NotificationPopup';
@@ -75,6 +75,7 @@ const CustomerView: React.FC = () => {
     const [tripStatus, setTripStatus] = useState<'idle' | 'pricing' | 'requested' | 'confirmed' | 'ongoing'>('idle');
     const [notification, setNotification] = useState<{ message: string, type: 'info' | 'success' | 'warning' | 'error' } | null>(null);
     const [isContactModalOpen, setIsContactModalOpen] = useState(false);
+    const [routeError, setRouteError] = useState<string | null>(null);
     
     useEffect(() => {
         if (lat && lng) {
@@ -142,33 +143,31 @@ const CustomerView: React.FC = () => {
     useEffect(() => {
         const calculateRoute = async () => {
             if (pickup && dropoff) {
+                setRouteError(null); // Clear previous errors when recalculating
                 try {
                     const routeData = await getRoute(
                         { lat: pickup.coords[0], lng: pickup.coords[1] },
                         { lat: dropoff.coords[0], lng: dropoff.coords[1] }
                     );
 
-                    // FIX: Safely handle API responses that don't contain a valid route.
-                    // This prevents the "Cannot read properties of undefined (reading '0')" crash.
                     if (routeData && routeData.features && routeData.features.length > 0 && routeData.features[0].geometry) {
                         const routeCoords = routeData.features[0].geometry.coordinates.map((c: number[]) => [c[1], c[0]] as LatLngTuple);
                         setRoute(routeCoords);
                         setDistance(routeData.features[0].properties.summary.distance); // in meters
                         setTripStatus('pricing');
                     } else {
-                        // Handle the case where no route was found between the points.
                         console.warn("No route returned from ORS API for the selected points.");
-                        setNotification({ message: 'تعذر إيجاد مسار بين النقطتين المحددتين.', type: 'warning' });
+                        setRouteError('تعذر إيجاد مسار بين النقطتين المحددتين. الرجاء تجربة مواقع مختلفة.');
                         setRoute([]);
                         setDistance(0);
-                        setTripStatus('idle'); // Reset status to allow for new selections.
+                        setTripStatus('pricing'); // Keep panel open to show error
                     }
                 } catch (error) {
                     console.error("Error fetching route from ORS:", error);
-                    setNotification({ message: 'تعذر حساب المسار. يرجى التحقق من اتصالك بالإنترنت.', type: 'error' });
+                    setRouteError('تعذر حساب المسار. يرجى التحقق من اتصالك بالإنترنت.');
                     setRoute([]);
                     setDistance(0);
-                    setTripStatus('idle'); // Reset status on network or other errors.
+                    setTripStatus('pricing'); // Keep panel open to show error
                 }
             }
         };
@@ -189,7 +188,7 @@ const CustomerView: React.FC = () => {
     }, [pickup, dropoff, handleSetPickup, handleSetDropoff]);
 
     const calculatePrice = (vehicle: VehicleType) => {
-        if (distance === 0) return 0;
+        if (!settings || distance === 0) return 0;
         const distanceInKm = distance / 1000;
         const multiplier = settings.vehicle_multipliers[vehicle] || 1;
         return Math.round((settings.base_fare_syp + (distanceInKm * settings.per_km_fare_syp)) * multiplier);
@@ -233,7 +232,7 @@ const CustomerView: React.FC = () => {
                             placeholder="نقطة الانطلاق"
                             suggestions={pickupSuggestions}
                             onSuggestionClick={(f) => handleSetPickup([f.geometry.coordinates[1], f.geometry.coordinates[0]], f.properties.label)}
-                            onClear={() => { setPickup(null); setPickupQuery(''); setRoute([]); setTripStatus('idle'); }}
+                            onClear={() => { setPickup(null); setPickupQuery(''); setRoute([]); setTripStatus('idle'); setRouteError(null); }}
                          />
                     </div>
                      <div className="flex-1 flex items-center gap-2">
@@ -244,7 +243,7 @@ const CustomerView: React.FC = () => {
                             placeholder="إلى أين تريد الذهاب؟"
                             suggestions={dropoffSuggestions}
                             onSuggestionClick={(f) => handleSetDropoff([f.geometry.coordinates[1], f.geometry.coordinates[0]], f.properties.label)}
-                            onClear={() => { setDropoff(null); setDropoffQuery(''); setRoute([]); setTripStatus('idle'); }}
+                            onClear={() => { setDropoff(null); setDropoffQuery(''); setRoute([]); setTripStatus('idle'); setRouteError(null); }}
                          />
                     </div>
                     <button onClick={() => lat && lng && handleSetPickup([lat,lng])} className="p-3 bg-sky-600 hover:bg-sky-500 rounded-lg text-white transition">
@@ -254,7 +253,12 @@ const CustomerView: React.FC = () => {
                 
                 {tripStatus === 'pricing' && (
                 <div className="animate-fade-in">
-                    {settingsLoading ? (
+                    {routeError ? (
+                        <div className="flex items-center justify-center gap-3 bg-amber-900/50 border border-amber-700 text-amber-300 p-4 rounded-lg my-2">
+                            <AlertTriangle className="h-6 w-6 flex-shrink-0" />
+                            <p className="font-semibold text-center">{routeError}</p>
+                        </div>
+                    ) : settingsLoading ? (
                         <div className="flex items-center justify-center h-48 text-slate-400">
                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-sky-400"></div>
                            <span className="ms-3">جاري تحميل التسعيرة...</span>
@@ -265,7 +269,7 @@ const CustomerView: React.FC = () => {
                         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
                             {Object.values(VehicleType).map((vehicleKey) => {
                                 const Icon = VEHICLE_ICONS[vehicleKey];
-                                if (!Icon || settings.vehicle_multipliers[vehicleKey] === undefined) return null;
+                                if (!Icon || !settings || settings.vehicle_multipliers[vehicleKey] === undefined) return null;
 
                                 const isActive = selectedVehicle === vehicleKey;
                                 return (
@@ -309,10 +313,10 @@ const CustomerView: React.FC = () => {
                         في حال واجهتك أي مشكلة، يمكنك التواصل مباشرة مع المدير على الرقم التالي:
                     </p>
                     <p dir="ltr" className="text-2xl font-bold text-sky-300 tracking-wider mb-6">
-                        {settings.manager_phone || 'غير متوفر'}
+                        {settings?.manager_phone || 'غير متوفر'}
                     </p>
                     <a
-                        href={`tel:${settings.manager_phone}`}
+                        href={`tel:${settings?.manager_phone}`}
                         className="w-full inline-flex justify-center items-center gap-2 bg-green-600 hover:bg-green-500 text-white font-bold py-3 px-4 rounded-lg transition-transform transform hover:scale-105"
                     >
                         <Phone />
