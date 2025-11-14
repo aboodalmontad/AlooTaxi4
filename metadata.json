@@ -1,0 +1,7 @@
+{
+  "name": "ألو تكسي (Allo Taxi)",
+  "description": "A professional and easy-to-use web application for ordering taxis and delivery services. It fully supports the Arabic language (RTL), uses Syrian formatting for dates and currency (SYP), and is responsive across all devices.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
