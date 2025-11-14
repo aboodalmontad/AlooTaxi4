@@ -4,7 +4,7 @@ import React from 'react';
 import { VehicleType } from './types';
 import { Car, Snowflake, Bus, Award, Bike, User } from 'lucide-react';
 
-export const ORS_API_KEY = '5b3ce3597851110001cf6248e12d4b05e23f4f36be3b1b7f7c69a82a';
+export const ORS_API_KEY = '5b3ce3597851110001cf6248a3c573524b074a38920b41992520f272';
 
 export const VEHICLE_ICONS: { [key in VehicleType]: React.FC<any> } = {
   [VehicleType.Regular]: Car,
