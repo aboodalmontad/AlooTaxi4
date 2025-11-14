@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import type { LatLngTuple } from 'leaflet';
 import MapComponent from '../map/MapComponent';
@@ -171,7 +170,12 @@ const CustomerView: React.FC = () => {
                     }
                 } catch (error) {
                     console.error("Error fetching route from ORS:", error);
-                    setRouteError('تعذر حساب المسار. يرجى التحقق من اتصالك بالإنترنت.');
+                    let userMessage = 'تعذر حساب المسار. يرجى التحقق من اتصالك بالإنترنت.';
+                    // Check for the specific distance limit error from the API
+                    if (error instanceof Error && error.message.includes('exceed the server configuration limits')) {
+                        userMessage = 'المسافة بين النقطتين كبيرة جداً ولا يمكن حساب مسار لها.';
+                    }
+                    setRouteError(userMessage);
                     setRoute([]);
                     setDistance(0);
                     setDuration(0);
