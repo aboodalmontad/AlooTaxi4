@@ -4,7 +4,7 @@ import type { LatLngTuple } from 'leaflet';
 import MapComponent from '../map/MapComponent';
 import { useGeolocation } from '../../hooks/useGeolocation';
 import { getRoute, getAutocomplete, reverseGeocode } from '../../services/ors';
-import { MapPin, LocateFixed, Search, X, Phone, AlertTriangle, Route, Clock } from 'lucide-react';
+import { MapPin, LocateFixed, Search, X, Phone, AlertTriangle, Route, Clock, ChevronUp } from 'lucide-react';
 import { VEHICLE_ICONS } from '../../constants';
 import { VehicleType } from '../../types';
 import NotificationPopup from '../ui/NotificationPopup';
@@ -77,6 +77,7 @@ const CustomerView: React.FC = () => {
     const [notification, setNotification] = useState<{ message: string, type: 'info' | 'success' | 'warning' | 'error' } | null>(null);
     const [isContactModalOpen, setIsContactModalOpen] = useState(false);
     const [routeError, setRouteError] = useState<string | null>(null);
+    const [isPanelOpen, setIsPanelOpen] = useState(true);
     
     useEffect(() => {
         if (lat && lng) {
@@ -89,6 +90,7 @@ const CustomerView: React.FC = () => {
     }, [lat, lng]);
     
     const handleSetPickup = useCallback(async (coords: LatLngTuple, address?: string) => {
+        setIsPanelOpen(true);
         try {
             const addr = address || await reverseGeocode({lat: coords[0], lng: coords[1]});
             setPickup({ coords, address: addr });
@@ -103,6 +105,7 @@ const CustomerView: React.FC = () => {
     }, []);
 
     const handleSetDropoff = useCallback(async (coords: LatLngTuple, address?: string) => {
+        setIsPanelOpen(true);
         try {
             const addr = address || await reverseGeocode({lat: coords[0], lng: coords[1]});
             setDropoff({ coords, address: addr });
@@ -179,6 +182,13 @@ const CustomerView: React.FC = () => {
         calculateRoute();
     }, [pickup, dropoff]);
 
+    // Automatically open the panel when pricing information is ready or an error occurs
+    useEffect(() => {
+        if (tripStatus === 'pricing') {
+            setIsPanelOpen(true);
+        }
+    }, [tripStatus]);
+
     const markers = useMemo(() => {
         const m = [];
         if (pickup) m.push({
@@ -225,106 +235,115 @@ const CustomerView: React.FC = () => {
                  <MapComponent center={mapCenter} markers={markers} route={route} />
             </div>
 
-            <div className="absolute bottom-0 left-0 right-0 bg-slate-800/80 backdrop-blur-md p-4 rounded-t-2xl shadow-2xl z-[400]">
-                {tripStatus === 'idle' || tripStatus === 'pricing' ? (
-                <>
-                <div className="flex flex-col md:flex-row gap-4 mb-4">
-                    <div className="flex-1 flex items-center gap-2">
-                         <MapPin className="text-green-400 h-6 w-6 flex-shrink-0" />
-                         <AddressInput
-                            value={pickupQuery}
-                            onValueChange={setPickupQuery}
-                            placeholder="نقطة الانطلاق"
-                            suggestions={pickupSuggestions}
-                            onSuggestionClick={(f) => handleSetPickup([f.geometry.coordinates[1], f.geometry.coordinates[0]], f.properties.label)}
-                            onClear={() => { setPickup(null); setPickupQuery(''); setRoute([]); setDistance(0); setDuration(0); setTripStatus('idle'); setRouteError(null); }}
-                         />
-                    </div>
-                     <div className="flex-1 flex items-center gap-2">
-                        <MapPin className="text-red-400 h-6 w-6 flex-shrink-0" />
-                        <AddressInput
-                            value={dropoffQuery}
-                            onValueChange={setDropoffQuery}
-                            placeholder="إلى أين تريد الذهاب؟"
-                            suggestions={dropoffSuggestions}
-                            onSuggestionClick={(f) => handleSetDropoff([f.geometry.coordinates[1], f.geometry.coordinates[0]], f.properties.label)}
-                            onClear={() => { setDropoff(null); setDropoffQuery(''); setRoute([]); setDistance(0); setDuration(0); setTripStatus('idle'); setRouteError(null); }}
-                         />
-                    </div>
-                    <button onClick={() => lat && lng && handleSetPickup([lat,lng])} className="p-3 bg-sky-600 hover:bg-sky-500 rounded-lg text-white transition">
-                        <LocateFixed />
-                    </button>
-                </div>
-                
-                {tripStatus === 'pricing' && (
-                <div className="animate-fade-in">
-                    {routeError ? (
-                        <div className="flex items-center justify-center gap-3 bg-amber-900/50 border border-amber-700 text-amber-300 p-4 rounded-lg my-2">
-                            <AlertTriangle className="h-6 w-6 flex-shrink-0" />
-                            <p className="font-semibold text-center">{routeError}</p>
-                        </div>
-                    ) : settingsLoading ? (
-                        <div className="flex items-center justify-center h-48 text-slate-400">
-                           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-sky-400"></div>
-                           <span className="ms-3">جاري تحميل التسعيرة...</span>
-                       </div>
-                    ) : (
+            <div className={`absolute bottom-0 left-0 right-0 bg-slate-800/80 backdrop-blur-md rounded-t-2xl shadow-2xl z-[400] transition-transform duration-300 ease-in-out ${isPanelOpen ? 'translate-y-0' : 'translate-y-[calc(100%-56px)]'}`}>
+                <button
+                    onClick={() => setIsPanelOpen(!isPanelOpen)}
+                    className="w-full h-14 flex justify-center items-center cursor-pointer"
+                    aria-label={isPanelOpen ? "إخفاء اللوحة" : "إظهار اللوحة"}
+                >
+                    <ChevronUp className={`h-8 w-8 text-slate-400 transition-transform duration-300 ${!isPanelOpen ? 'rotate-180' : ''}`} />
+                </button>
+                <div className="p-4 pt-0">
+                    {tripStatus === 'idle' || tripStatus === 'pricing' ? (
                     <>
-                        {distance > 0 && !routeError && (
-                            <div className="bg-slate-900/50 p-3 rounded-lg mb-4 flex items-center justify-around text-center border border-slate-600">
-                                <div className="flex items-center gap-3">
-                                    <Route className="h-6 w-6 text-sky-400" />
-                                    <div>
-                                        <p className="text-slate-400 text-xs">المسافة</p>
-                                        <p className="text-white text-lg font-bold">{(distance / 1000).toFixed(1)} كم</p>
-                                    </div>
-                                </div>
-                                <div className="w-px h-10 bg-slate-600"></div> {/* Divider */}
-                                <div className="flex items-center gap-3">
-                                    <Clock className="h-6 w-6 text-sky-400" />
-                                    <div>
-                                        <p className="text-slate-400 text-xs">الوقت المقدر</p>
-                                        <p className="text-white text-lg font-bold">{Math.round(duration / 60)} دقيقة</p>
-                                    </div>
-                                </div>
+                    <div className="flex flex-col md:flex-row gap-4 mb-4">
+                        <div className="flex-1 flex items-center gap-2">
+                             <MapPin className="text-green-400 h-6 w-6 flex-shrink-0" />
+                             <AddressInput
+                                value={pickupQuery}
+                                onValueChange={setPickupQuery}
+                                placeholder="نقطة الانطلاق"
+                                suggestions={pickupSuggestions}
+                                onSuggestionClick={(f) => handleSetPickup([f.geometry.coordinates[1], f.geometry.coordinates[0]], f.properties.label)}
+                                onClear={() => { setPickup(null); setPickupQuery(''); setRoute([]); setDistance(0); setDuration(0); setTripStatus('idle'); setRouteError(null); }}
+                             />
+                        </div>
+                         <div className="flex-1 flex items-center gap-2">
+                            <MapPin className="text-red-400 h-6 w-6 flex-shrink-0" />
+                            <AddressInput
+                                value={dropoffQuery}
+                                onValueChange={setDropoffQuery}
+                                placeholder="إلى أين تريد الذهاب؟"
+                                suggestions={dropoffSuggestions}
+                                onSuggestionClick={(f) => handleSetDropoff([f.geometry.coordinates[1], f.geometry.coordinates[0]], f.properties.label)}
+                                onClear={() => { setDropoff(null); setDropoffQuery(''); setRoute([]); setDistance(0); setDuration(0); setTripStatus('idle'); setRouteError(null); }}
+                             />
+                        </div>
+                        <button onClick={() => lat && lng && handleSetPickup([lat,lng])} className="p-3 bg-sky-600 hover:bg-sky-500 rounded-lg text-white transition">
+                            <LocateFixed />
+                        </button>
+                    </div>
+                    
+                    {tripStatus === 'pricing' && (
+                    <div className="animate-fade-in">
+                        {routeError ? (
+                            <div className="flex items-center justify-center gap-3 bg-amber-900/50 border border-amber-700 text-amber-300 p-4 rounded-lg my-2">
+                                <AlertTriangle className="h-6 w-6 flex-shrink-0" />
+                                <p className="font-semibold text-center">{routeError}</p>
                             </div>
-                        )}
-                        <h3 className="text-white text-lg font-semibold mb-3">اختر نوع المركبة:</h3>
-                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
-                            {Object.values(VehicleType).map((vehicleKey) => {
-                                const Icon = VEHICLE_ICONS[vehicleKey];
-                                if (!Icon || !settings || settings.vehicle_multipliers[vehicleKey] === undefined) return null;
+                        ) : settingsLoading ? (
+                            <div className="flex items-center justify-center h-48 text-slate-400">
+                               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-sky-400"></div>
+                               <span className="ms-3">جاري تحميل التسعيرة...</span>
+                           </div>
+                        ) : (
+                        <>
+                            {distance > 0 && !routeError && (
+                                <div className="bg-slate-900/50 p-3 rounded-lg mb-4 flex items-center justify-around text-center border border-slate-600">
+                                    <div className="flex items-center gap-3">
+                                        <Route className="h-6 w-6 text-sky-400" />
+                                        <div>
+                                            <p className="text-slate-400 text-xs">المسافة</p>
+                                            <p className="text-white text-lg font-bold">{(distance / 1000).toFixed(1)} كم</p>
+                                        </div>
+                                    </div>
+                                    <div className="w-px h-10 bg-slate-600"></div> {/* Divider */}
+                                    <div className="flex items-center gap-3">
+                                        <Clock className="h-6 w-6 text-sky-400" />
+                                        <div>
+                                            <p className="text-slate-400 text-xs">الوقت المقدر</p>
+                                            <p className="text-white text-lg font-bold">{Math.round(duration / 60)} دقيقة</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                            <h3 className="text-white text-lg font-semibold mb-3">اختر نوع المركبة:</h3>
+                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
+                                {Object.values(VehicleType).map((vehicleKey) => {
+                                    const Icon = VEHICLE_ICONS[vehicleKey];
+                                    if (!Icon || !settings || settings.vehicle_multipliers[vehicleKey] === undefined) return null;
 
-                                const isActive = selectedVehicle === vehicleKey;
-                                return (
-                                    <button key={vehicleKey} onClick={() => setSelectedVehicle(vehicleKey)} className={`p-3 rounded-lg text-center transition ${isActive ? 'bg-sky-600 text-white ring-2 ring-sky-300' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}>
-                                        <Icon className="mx-auto h-8 w-8 mb-2" />
-                                        <span className="block text-sm font-medium">{vehicleKey}</span>
-                                        <span className="block text-xs font-bold text-sky-300 mt-1">{formatSYP(calculatePrice(vehicleKey))}</span>
-                                    </button>
-                                );
-                            })}
-                        </div>
-                        <div className="flex gap-4">
-                            <button onClick={handleRequestTrip} className="flex-1 bg-green-600 hover:bg-green-500 text-white font-bold py-3 px-4 rounded-lg transition-transform transform hover:scale-105">
-                                تأكيد الطلب الآن
-                            </button>
-                             <button className="bg-slate-600 hover:bg-slate-500 text-white font-bold py-3 px-4 rounded-lg transition">
-                                جدولة الرحلة
-                            </button>
-                        </div>
+                                    const isActive = selectedVehicle === vehicleKey;
+                                    return (
+                                        <button key={vehicleKey} onClick={() => setSelectedVehicle(vehicleKey)} className={`p-3 rounded-lg text-center transition ${isActive ? 'bg-sky-600 text-white ring-2 ring-sky-300' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}>
+                                            <Icon className="mx-auto h-8 w-8 mb-2" />
+                                            <span className="block text-sm font-medium">{vehicleKey}</span>
+                                            <span className="block text-xs font-bold text-sky-300 mt-1">{formatSYP(calculatePrice(vehicleKey))}</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            <div className="flex gap-4">
+                                <button onClick={handleRequestTrip} className="flex-1 bg-green-600 hover:bg-green-500 text-white font-bold py-3 px-4 rounded-lg transition-transform transform hover:scale-105">
+                                    تأكيد الطلب الآن
+                                </button>
+                                 <button className="bg-slate-600 hover:bg-slate-500 text-white font-bold py-3 px-4 rounded-lg transition">
+                                    جدولة الرحلة
+                                </button>
+                            </div>
+                        </>
+                        )}
+                    </div>
+                    )}
                     </>
+                    ) : (
+                        <div className="text-center py-4 text-white animate-fade-in">
+                            <h2 className="text-2xl font-bold mb-2">{notification?.message}</h2>
+                            {tripStatus === 'requested' && <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-sky-300 mx-auto mt-4"></div>}
+                            {tripStatus === 'confirmed' && <p>يمكنك تتبع السائق على الخريطة.</p>}
+                        </div>
                     )}
                 </div>
-                )}
-                </>
-                ) : (
-                    <div className="text-center py-4 text-white animate-fade-in">
-                        <h2 className="text-2xl font-bold mb-2">{notification?.message}</h2>
-                        {tripStatus === 'requested' && <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-sky-300 mx-auto mt-4"></div>}
-                        {tripStatus === 'confirmed' && <p>يمكنك تتبع السائق على الخريطة.</p>}
-                    </div>
-                )}
             </div>
 
             <Modal
