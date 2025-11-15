@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import type { LatLngTuple } from 'leaflet';
 import MapComponent from '../map/MapComponent';
@@ -21,28 +20,9 @@ const DriverView: React.FC = () => {
     // Damascus as default, will be updated by geolocation
     const driverPosition = useMemo((): LatLngTuple => (lat && lng ? [lat, lng] : [33.5138, 36.2765]), [lat, lng]);
 
-    // Mock listening for new requests
-    useEffect(() => {
-        if (status === 'online') {
-            const timer = setTimeout(() => {
-                // This would be a real-time subscription in a real app
-                setIncomingRequest({
-                    id: 'trip_123',
-                    customer_id: 'cust_abc',
-                    status: 'requested',
-                    pickup_location: { lat: 33.510, lng: 36.275 },
-                    dropoff_location: { lat: 33.520, lng: 36.290 },
-                    pickup_address: 'ساحة الأمويين',
-                    dropoff_address: 'باب توما',
-                    distance_meters: 5200,
-                    estimated_cost: 8000,
-                    vehicle_type: 'سيارة خاصة مكيفة',
-                    created_at: new Date().toISOString(),
-                });
-            }, 5000); // New request after 5 seconds
-            return () => clearTimeout(timer);
-        }
-    }, [status]);
+    // The mock for creating a fake trip request has been removed.
+    // In a real app, this would be replaced by a Supabase real-time subscription
+    // to listen for new trips assigned to this driver.
     
     const handleAcceptRequest = () => {
         if (incomingRequest) {

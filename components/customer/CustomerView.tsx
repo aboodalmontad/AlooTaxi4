@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import type { LatLngTuple } from 'leaflet';
 import MapComponent from '../map/MapComponent';
@@ -252,12 +251,10 @@ const CustomerView: React.FC = () => {
     const handleRequestTrip = () => {
         setTripStatus('requested');
         setNotification({ message: 'تم إرسال طلبك! جاري البحث عن أقرب سائق...', type: 'info' });
-        // Mock driver acceptance
-        setTimeout(() => {
-            setTripStatus('confirmed');
-            setNotification({ message: 'تم قبول رحلتك! السائق في طريقه إليك.', type: 'success' });
-        }, 5000);
-    }
+        // The mock driver acceptance has been removed as per your request.
+        // In a real application, this is where you would listen for a driver's
+        // acceptance via a real-time service.
+    };
     
     return (
         <div className="h-screen w-screen flex flex-col relative">
