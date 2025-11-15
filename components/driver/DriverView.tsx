@@ -4,7 +4,8 @@ import MapComponent from '../map/MapComponent';
 import { useGeolocation } from '../../hooks/useGeolocation';
 import type { Trip } from '../../types';
 import { supabase } from '../../services/supabase';
-import { Navigation, Check, X, Phone } from 'lucide-react';
+import { Navigation, Check, X, Phone, LogOut } from 'lucide-react';
+import { useAuth } from '../../hooks/useAuth';
 
 const formatSYP = (amount: number) => {
   return new Intl.NumberFormat('ar-SY', { style: 'currency', currency: 'SYP', minimumFractionDigits: 0 }).format(amount);
@@ -12,6 +13,7 @@ const formatSYP = (amount: number) => {
 
 
 const DriverView: React.FC = () => {
+    const { user, logout } = useAuth();
     const { lat, lng } = useGeolocation(true); // Watch for position changes
     const [currentTrip, setCurrentTrip] = useState<Trip | null>(null);
     const [incomingRequest, setIncomingRequest] = useState<Trip | null>(null);
@@ -74,7 +76,21 @@ const DriverView: React.FC = () => {
 
     return (
         <div className="h-screen w-screen flex flex-col relative text-white">
-            <div className="absolute top-4 right-4 z-10">
+            <div className="absolute top-4 right-4 left-4 z-[1000] flex justify-between items-center">
+                 <div className="flex items-center gap-3 bg-slate-800/80 backdrop-blur-md p-2 pl-3 rounded-lg shadow-lg">
+                    <div>
+                        <p className="text-sm text-slate-300">أهلاً بك،</p>
+                        <p className="font-bold text-white -mt-1">{user?.name}</p>
+                    </div>
+                    <button 
+                        onClick={logout} 
+                        className="p-2 text-red-400 hover:bg-red-500/20 rounded-full transition" 
+                        title="تسجيل الخروج"
+                    >
+                        <LogOut size={20} />
+                    </button>
+                </div>
+
                 <div className="flex items-center gap-4 bg-slate-800/80 backdrop-blur-md p-3 rounded-lg shadow-lg">
                     <span className="font-semibold">الحالة:</span>
                     <button onClick={() => setStatus(s => s === 'online' ? 'offline' : 'online')} className={`px-4 py-2 rounded-md font-bold transition ${status !== 'offline' ? 'bg-green-600' : 'bg-red-600'}`}>
@@ -88,7 +104,7 @@ const DriverView: React.FC = () => {
             </div>
             
             {incomingRequest && status === 'online' && (
-                <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-indigo-900 to-transparent z-10 animate-fade-in-up">
+                <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-indigo-900 to-transparent z-[1000] animate-fade-in-up">
                     <div className="bg-slate-800/90 backdrop-blur-md p-6 rounded-2xl shadow-2xl border border-sky-500">
                         <h2 className="text-2xl font-bold text-sky-300 mb-4">لديك طلب توصيل جديد!</h2>
                         <div className="space-y-3 text-lg">
@@ -109,7 +125,7 @@ const DriverView: React.FC = () => {
             )}
             
             {currentTrip && status === 'in_trip' && (
-                <div className="absolute bottom-0 left-0 right-0 p-4 bg-slate-800/90 backdrop-blur-md rounded-t-2xl shadow-2xl z-10 animate-fade-in-up">
+                <div className="absolute bottom-0 left-0 right-0 p-4 bg-slate-800/90 backdrop-blur-md rounded-t-2xl shadow-2xl z-[1000] animate-fade-in-up">
                     <h2 className="text-xl font-bold mb-3">
                        {currentTrip.status === 'accepted' && 'في الطريق إلى الزبون'}
                        {currentTrip.status === 'driver_arrived' && 'بانتظار الزبون'}
