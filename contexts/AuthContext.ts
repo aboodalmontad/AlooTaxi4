@@ -4,7 +4,7 @@ import type { User } from '../types';
 
 interface AuthContextType {
   user: User | null;
-  login: (userData: User) => void;
+  login: (userData: User) => void; // Kept for ActivationScreen compatibility
   logout: () => void;
 }
 

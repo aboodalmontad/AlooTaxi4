@@ -1,15 +1,15 @@
+
 import React, { useState } from 'react';
 import type { UserRole } from '../../types';
-import { useAuth } from '../../hooks/useAuth';
 import { SYRIAN_PROVINCES } from '../../constants';
-import { findUserByPhone, createUser } from '../../services/supabase';
-import { Database, Copy, Check, ArrowRight, RefreshCw, ShieldAlert, X } from 'lucide-react';
+import { signIn, signUp } from '../../services/supabase';
+import { Database, Copy, Check, ShieldAlert, X, LogIn, UserPlus, RefreshCw, Info } from 'lucide-react';
 import { useSettings } from '../../contexts/SettingsContext';
 
 
 const DB_SCHEMA_SCRIPT = `
--- ألو تكسي - سكربت إعادة تعيين وإنشاء قاعدة البيانات
--- Allo Taxi - Database Reset and Creation Script
+-- ألو تكسي - سكربت إعادة تعيين وإنشاء قاعدة البيانات (متوافق مع نظام المصادقة)
+-- Allo Taxi - Database Reset and Creation Script (Auth Compatible)
 -- تحذير: هذا السكربت سيقوم بحذف الجداول والأنواع الحالية قبل إعادة إنشائها.
 -- WARNING: This script will delete existing tables and types before recreating them.
 
@@ -30,9 +30,10 @@ CREATE TYPE public.vehicle_type AS ENUM ('سيارة خاصة عادية', 'سي
 CREATE TYPE public.trip_status AS ENUM ('requested', 'accepted', 'driver_arrived', 'in_progress', 'completed', 'cancelled', 'scheduled');
 
 
--- 2. إنشاء جدول المستخدمين (users)
+-- 2. إنشاء جدول المستخدمين (users) - مرتبط بـ auth.users
+-- This table stores public profile data for each user and is linked to the main auth.users table.
 CREATE TABLE public.users (
-    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    id uuid NOT NULL,
     name text NOT NULL,
     phone text NOT NULL,
     role public.user_role NOT NULL,
@@ -41,9 +42,9 @@ CREATE TABLE public.users (
     created_at timestamp with time zone NOT NULL DEFAULT now(),
     activation_code text NULL,
     CONSTRAINT users_pkey PRIMARY KEY (id),
-    CONSTRAINT users_phone_key UNIQUE (phone)
+    CONSTRAINT users_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE
 );
-COMMENT ON TABLE public.users IS 'يحتوي على معلومات جميع مستخدمي التطبيق.';
+COMMENT ON TABLE public.users IS 'يحتوي على معلومات جميع مستخدمي التطبيق ويرتبط بجدول المصادقة.';
 
 
 -- 3. إنشاء جدول الرحلات (trips)
@@ -111,22 +112,25 @@ ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.settings ENABLE ROW LEVEL SECURITY;
 
 
--- 8. إنشاء سياسات RLS (Policies) للسماح بالوصول العام
--- ملاحظة: هذه السياسات متساهلة ومعدة لبيئة تطوير بدون مصادقة Supabase مدمجة.
-CREATE POLICY "Public users access" ON public.users FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Public trips access" ON public.trips FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Public notifications access" ON public.notifications FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Public settings access" ON public.settings FOR ALL USING (true) WITH CHECK (true);
+-- 8. إنشاء سياسات RLS (Policies) الآمنة
+-- Users can only see and manage their own data. Admins have broader access.
+CREATE POLICY "Users can view their own profile." ON public.users FOR SELECT USING (auth.uid() = id);
+CREATE POLICY "Users can create their own profile." ON public.users FOR INSERT WITH CHECK (auth.uid() = id);
+CREATE POLICY "Public read access for settings" ON public.settings FOR SELECT USING (true);
+-- A more complex policy is needed for admins in a real scenario. For this app, we'll allow full access.
+CREATE POLICY "Admins can manage all data." ON public.users FOR ALL USING ( (SELECT role FROM public.users WHERE id = auth.uid()) = 'super_admin' );
+CREATE POLICY "Admins can manage all settings." ON public.settings FOR ALL USING ( (SELECT role FROM public.users WHERE id = auth.uid()) = 'super_admin' );
 
 -- 9. إنشاء حساب المدير العام الافتراضي
--- Create a default super admin account
-INSERT INTO public.users (name, phone, role, is_verified)
-VALUES ('المدير العام', '0999999999', 'super_admin', true)
-ON CONFLICT (phone) DO NOTHING;
+-- Note: This only creates the profile. The actual user must be created in Supabase Auth
+-- (e.g., via the Supabase Studio) with the phone number '0999999999' and password.
+-- Then, get the user's ID from the 'auth.users' table and replace the placeholder below.
+INSERT INTO public.users (id, name, phone, role, is_verified)
+VALUES ('00000000-0000-0000-0000-000000000000', 'المدير العام', '0999999999', 'super_admin', true)
+ON CONFLICT (id) DO NOTHING;
+
 
 -- 10. إنشاء دالة للتحقق من إصدار المخطط
--- This function allows the app to check if the DB schema is up-to-date.
--- It specifically checks for the existence of the 'activation_code' column.
 CREATE OR REPLACE FUNCTION public.check_activation_column_exists()
 RETURNS boolean
 LANGUAGE plpgsql
@@ -183,13 +187,27 @@ const DatabaseSetupGuide: React.FC<{
 
                 <div className="space-y-4 text-slate-200 mb-6 bg-slate-900/50 p-6 rounded-lg border border-slate-700">
                     <h3 className="text-xl font-semibold text-sky-300 border-b border-slate-700 pb-2 mb-4">دليل الإعداد خطوة بخطوة</h3>
+
+                    <div className="bg-indigo-900/50 p-4 rounded-lg border border-indigo-700 flex gap-4">
+                        <Info className="h-6 w-6 text-indigo-300 flex-shrink-0 mt-1" />
+                        <div>
+                            <h4 className="font-bold text-indigo-200 mb-2">لماذا نحتاج إلى تفعيل "Email provider"؟</h4>
+                            <p className="text-sm text-indigo-300">
+                                تطبيقنا يستخدم رقم الهاتف لتسجيل الدخول. ولكن لضمان أقصى درجات الأمان، نستخدم نظام المصادقة القوي والمجاني من Supabase خلف الكواليس. يقوم التطبيق تلقائياً بتحويل رقم الهاتف إلى معرّف فريد وآمن (مثال: <code dir="ltr" className="font-mono text-xs">+963...@allo.taxi</code>). هذا يسمح لنا بتوفير نظام تسجيل دخول آمن ومجاني دون الحاجة لإرسال رسائل SMS مكلفة. تفعيل "Email provider" هو مجرد خطوة تقنية للسماح لهذا النظام بالعمل. <b className="font-bold text-white">التطبيق لن يستخدم أو يطلب أي بريد إلكتروني حقيقي من المستخدمين.</b>
+                            </p>
+                        </div>
+                    </div>
+
                     <p>1. اذهب إلى <a href="https://supabase.com/" target="_blank" rel="noopener noreferrer" className="text-sky-400 hover:underline">لوحة تحكم مشروعك في Supabase</a>.</p>
-                    <p>2. في القائمة الجانبية، اذهب إلى قسم <b className="text-white">SQL Editor</b> (محرر SQL).</p>
-                    <p>3. اضغط على <b className="text-white">+ New query</b> (استعلام جديد).</p>
-                    <p>4. انسخ السكربت أدناه بالضغط على زر "نسخ السكربت".</p>
-                    <p>5. الصق السكربت في المحرر واضغط على <b className="text-white">RUN</b> (تشغيل).</p>
-                    <p className="bg-sky-900/50 p-3 rounded-lg border border-sky-700"><b className="text-amber-300">6. (مهم جداً)</b> بعد نجاح التنفيذ، اذهب إلى قسم <b className="text-white">API Docs</b>، ثم في صفحة الجداول (Tables and Views)، اضغط على زر <b className="text-white">"Reload schema"</b> في الأعلى ليتعرف التطبيق على أي تغييرات جديدة.</p>
-                    <p>7. بعد إتمام الخطوات، عد إلى هنا واضغط على زر "التحقق والمتابعة".</p>
+                    <p>2. في القائمة الجانبية، اذهب إلى <b className="text-white">Authentication</b> ثم <b className="text-white">Providers</b>.</p>
+                    <p><b className="text-sky-300">3. (خطوة تقنية ضرورية)</b> تأكد من أن مقدم الخدمة <b className="text-white">Email</b> مُفعّل (Enabled). (انظر الشرح أعلاه).</p>
+                    <p><b className="text-amber-300">4. (مهم جداً)</b> تحت قسم <b className="text-white">Email</b>، قم <b className="text-amber-300">بتعطيل</b> خيار <b className="text-white">"Confirm email"</b>. هذا ضروري ليعمل نظام التفعيل اليدوي عبر واتساب.</p>
+                    <p>5. في القائمة الجانبية، اذهب إلى قسم <b className="text-white">SQL Editor</b> (محرر SQL).</p>
+                    <p>6. اضغط على <b className="text-white">+ New query</b> (استعلام جديد).</p>
+                    <p>7. انسخ السكربت أدناه بالضغط على زر "نسخ السكربت".</p>
+                    <p>8. الصق السكربت في المحرر واضغط على <b className="text-white">RUN</b> (تشغيل).</p>
+                    <p><b className="text-amber-300">9. (مهم جداً)</b> بعد نجاح التنفيذ، اذهب إلى قسم <b className="text-white">API Docs</b>، ثم في صفحة الجداول (Tables and Views)، اضغط على زر <b className="text-white">"Reload schema"</b> في الأعلى ليتعرف التطبيق على أي تغييرات جديدة.</p>
+                    <p>10. بعد إتمام الخطوات، عد إلى هنا واضغط على زر "التحقق والمتابعة".</p>
                 </div>
 
                 <div className="relative mb-6">
@@ -219,63 +237,77 @@ const DatabaseSetupGuide: React.FC<{
 };
 
 const Login: React.FC = () => {
+  const [isLoginView, setIsLoginView] = useState(true);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [role, setRole] = useState<UserRole>('customer');
   const [province, setProvince] = useState(SYRIAN_PROVINCES[0]);
-  const [isNewUser, setIsNewUser] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
   const { error: settingsError, loading: settingsLoading, refetchSettings } = useSettings();
-
   const [isRetrying, setIsRetrying] = useState(false);
   const [showSetupGuide, setShowSetupGuide] = useState(false);
-  
-  const handlePhoneSubmit = async (e: React.FormEvent) => {
-      e.preventDefault();
-      if (!/^(09)\d{8}$/.test(phone)) {
-          setError('الرجاء إدخال رقم هاتف سوري صالح (e.g., 09xxxxxxxx)');
-          return;
-      }
-      setError('');
-      setLoading(true);
 
-      try {
-        const existingUser = await findUserByPhone(phone);
-        if (existingUser) {
-            login(existingUser);
-        } else {
-            setIsNewUser(true);
-        }
-      } catch (err) {
-        setError('فشل الاتصال بالخادم. يرجى التحقق من اتصالك بالإنترنت.');
-      } finally {
-        setLoading(false);
-      }
+  const validatePhone = () => {
+    if (!/^(09)\d{8}$/.test(phone)) {
+        setError('الرجاء إدخال رقم هاتف سوري صالح (e.g., 09xxxxxxxx)');
+        return false;
+    }
+    return true;
+  }
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!validatePhone() || !password) {
+        setError('الرجاء إدخال رقم الهاتف وكلمة المرور.');
+        return;
+    }
+    setError('');
+    setLoading(true);
+
+    const { error: signInError } = await signIn(phone, password);
+    if (signInError) {
+        setError(signInError.message === 'Invalid login credentials' ? 'رقم الهاتف أو كلمة المرور غير صحيحة.' : 'فشل تسجيل الدخول. يرجى المحاولة مرة أخرى.');
+    }
+    // On success, the onAuthStateChange listener in App.tsx will handle the rest.
+    setLoading(false);
   };
   
-  const handleRegistration = async (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) {
-        setError('الرجاء إدخال الاسم.');
+    if (!validatePhone() || !name.trim()) {
+        setError('الرجاء إدخال الاسم ورقم هاتف صالح.');
+        return;
+    }
+    if (password.length < 6) {
+        setError('يجب أن تتكون كلمة المرور من 6 أحرف على الأقل.');
+        return;
+    }
+    if (password !== confirmPassword) {
+        setError('كلمتا المرور غير متطابقتين.');
         return;
     }
     setError('');
     setLoading(true);
     
-    try {
-        const newUser = await createUser(name, phone, role, province);
-        if(newUser) {
-            login(newUser);
+    const { user, session, error: signUpError } = await signUp(name, phone, password, role, province);
+    if (signUpError) {
+        if (signUpError.message.includes('User already registered')) {
+            setError('هذا الرقم مسجل بالفعل. يرجى تسجيل الدخول بدلاً من ذلك.');
+        } else if (signUpError.message.includes('Email signups are disabled')) {
+            setError('فشل إنشاء الحساب. يرجى الطلب من مسؤول النظام مراجعة دليل الإعداد وتفعيل "Email provider".');
         } else {
-            setError('حدث خطأ أثناء إنشاء الحساب. قد يكون رقم الهاتف مستخدماً أو أن قاعدة البيانات غير مهيأة.');
+            setError('حدث خطأ أثناء إنشاء الحساب. ' + signUpError.message);
         }
-    } catch (err) {
-        setError('فشل الاتصال بالخادم. يرجى التحقق من اتصالك بالإنترنت.');
-    } finally {
-        setLoading(false);
+    } else if (user && !session) {
+        // This handles the case where sign-up is successful but requires email confirmation,
+        // which is not possible with our dummy email system.
+        setError('فشل إنشاء الحساب. يرجى الطلب من مسؤول النظام تعطيل خيار "Confirm email" في إعدادات المصادقة.');
     }
+    // On success with a session, the onAuthStateChange listener in App.tsx will handle the rest.
+    setLoading(false);
   };
 
   const handleRetry = async () => {
@@ -297,8 +329,6 @@ const Login: React.FC = () => {
     );
   }
   
-  // More robust error checking. Show the setup guide if the DB is not initialized,
-  // the schema is outdated, or the user manually requested it.
   const isDbSetupError = settingsError && (settingsError.startsWith('SETUP_REQUIRED') || settingsError.startsWith('SCHEMA_OUTDATED'));
   if (isDbSetupError || showSetupGuide) {
       return <DatabaseSetupGuide
@@ -332,87 +362,77 @@ const Login: React.FC = () => {
     );
   }
 
+  const AuthForm = isLoginView ? (
+    <form onSubmit={handleLogin} className="space-y-4">
+        <div>
+            <label htmlFor="phone" className="block text-sm font-medium text-slate-300 mb-2">رقم الهاتف</label>
+            <input id="phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="09..." required className="w-full bg-slate-700/50 border border-slate-600 rounded-lg px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 transition"/>
+        </div>
+        <div>
+            <label htmlFor="password"className="block text-sm font-medium text-slate-300 mb-2">كلمة المرور</label>
+            <input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="w-full bg-slate-700/50 border border-slate-600 rounded-lg px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 transition"/>
+        </div>
+        <button type="submit" disabled={loading} className="w-full bg-sky-600 hover:bg-sky-500 text-white font-bold py-3 px-4 rounded-lg transition-transform transform hover:scale-105 disabled:bg-slate-500 disabled:cursor-not-allowed flex justify-center items-center gap-2">
+            {loading ? <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div> : <><LogIn size={18}/> تسجيل الدخول</>}
+        </button>
+    </form>
+  ) : (
+    <form onSubmit={handleRegister} className="space-y-4 animate-fade-in">
+        <div>
+            <label htmlFor="name-reg" className="block text-sm font-medium text-slate-300 mb-2">الاسم الكامل</label>
+            <input id="name-reg" type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="اسمك الكامل" required className="w-full bg-slate-700/50 border border-slate-600 rounded-lg px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 transition"/>
+        </div>
+         <div>
+            <label htmlFor="phone-reg" className="block text-sm font-medium text-slate-300 mb-2">رقم الهاتف</label>
+            <input id="phone-reg" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="09..." required className="w-full bg-slate-700/50 border border-slate-600 rounded-lg px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 transition"/>
+        </div>
+        <div>
+            <label htmlFor="password-reg"className="block text-sm font-medium text-slate-300 mb-2">كلمة المرور</label>
+            <input id="password-reg" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="w-full bg-slate-700/50 border border-slate-600 rounded-lg px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 transition"/>
+        </div>
+        <div>
+            <label htmlFor="confirm-password-reg"className="block text-sm font-medium text-slate-300 mb-2">تأكيد كلمة المرور</label>
+            <input id="confirm-password-reg" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required className="w-full bg-slate-700/50 border border-slate-600 rounded-lg px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 transition"/>
+        </div>
+        <div>
+            <label htmlFor="role" className="block text-sm font-medium text-slate-300 mb-2">تسجيل كـ</label>
+            <select id="role" value={role} onChange={(e) => setRole(e.target.value as UserRole)} className="w-full bg-slate-700/50 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-sky-500 transition">
+                <option value="customer">زبون</option>
+                <option value="driver">سائق</option>
+            </select>
+        </div>
+        {role === 'driver' && (
+            <div>
+                <label htmlFor="province" className="block text-sm font-medium text-slate-300 mb-2">المحافظة</label>
+                <select id="province" value={province} onChange={(e) => setProvince(e.target.value)} className="w-full bg-slate-700/50 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-sky-500 transition">
+                    {SYRIAN_PROVINCES.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+            </div>
+        )}
+        <button type="submit" disabled={loading} className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-3 px-4 rounded-lg transition-transform transform hover:scale-105 disabled:bg-slate-500 disabled:cursor-not-allowed flex justify-center items-center gap-2">
+            {loading ? <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div> : <><UserPlus size={18}/> إنشاء حساب</>}
+        </button>
+    </form>
+  );
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-900 to-slate-900 flex items-center justify-center p-4">
       <div className="w-full max-w-md bg-white/10 backdrop-blur-lg rounded-2xl shadow-2xl p-8 text-white">
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold tracking-wider">ألو تكسي</h1>
-          <p className="text-sky-300 mt-2">خدمتك الأسرع للتنقل</p>
+          <p className="text-sky-300 mt-2">{isLoginView ? 'أهلاً بعودتك!' : 'انضم إلينا الآن'}</p>
         </div>
 
         {error && <p className="bg-red-500/50 text-white p-3 rounded-lg mb-4 text-center">{error}</p>}
 
-        {!isNewUser ? (
-            <form onSubmit={handlePhoneSubmit}>
-              <div className="mb-4">
-                <label htmlFor="phone" className="block text-sm font-medium text-slate-300 mb-2">رقم الهاتف</label>
-                <input
-                  id="phone"
-                  type="tel"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="09..."
-                  required
-                  className="w-full bg-slate-700/50 border border-slate-600 rounded-lg px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 transition"
-                />
-              </div>
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-sky-600 hover:bg-sky-500 text-white font-bold py-3 px-4 rounded-lg transition-transform transform hover:scale-105 disabled:bg-slate-500 disabled:cursor-not-allowed flex justify-center items-center"
-              >
-                {loading ? <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div> : 'متابعة'}
-              </button>
-            </form>
-        ) : (
-            <form onSubmit={handleRegistration} className="animate-fade-in">
-                <p className="text-center mb-4 text-slate-300">أهلاً بك! يرجى إكمال التسجيل.</p>
-                <div className="mb-4">
-                    <label htmlFor="name" className="block text-sm font-medium text-slate-300 mb-2">الاسم الكامل</label>
-                    <input
-                      id="name"
-                      type="text"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      placeholder="اسمك الكامل"
-                      required
-                      className="w-full bg-slate-700/50 border border-slate-600 rounded-lg px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 transition"
-                    />
-                </div>
-                <div className="mb-6">
-                    <label htmlFor="role" className="block text-sm font-medium text-slate-300 mb-2">تسجيل كـ</label>
-                    <select
-                        id="role"
-                        value={role}
-                        onChange={(e) => setRole(e.target.value as UserRole)}
-                        className="w-full bg-slate-700/50 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-sky-500 transition"
-                    >
-                        <option value="customer">زبون</option>
-                        <option value="driver">سائق</option>
-                    </select>
-                </div>
-                 {(role === 'driver' || role === 'province_admin') && (
-                     <div className="mb-6">
-                        <label htmlFor="province" className="block text-sm font-medium text-slate-300 mb-2">المحافظة</label>
-                        <select
-                            id="province"
-                            value={province}
-                            onChange={(e) => setProvince(e.target.value)}
-                            className="w-full bg-slate-700/50 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-sky-500 transition"
-                        >
-                           {SYRIAN_PROVINCES.map(p => <option key={p} value={p}>{p}</option>)}
-                        </select>
-                    </div>
-                 )}
-                <button
-                    type="submit"
-                    disabled={loading}
-                    className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-3 px-4 rounded-lg transition-transform transform hover:scale-105 disabled:bg-slate-500 disabled:cursor-not-allowed flex justify-center items-center"
-                >
-                     {loading ? <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div> : 'إنشاء حساب'}
-                </button>
-            </form>
-        )}
+        {AuthForm}
+        
+        <div className="text-center mt-6">
+            <button onClick={() => { setIsLoginView(!isLoginView); setError(''); }} className="text-sm text-slate-400 hover:text-sky-300 transition">
+                {isLoginView ? 'ليس لديك حساب؟ إنشاء حساب جديد' : 'لديك حساب بالفعل؟ تسجيل الدخول'}
+            </button>
+        </div>
+
         <div className="text-center mt-6 pt-4 border-t border-slate-700/50">
           <button
               onClick={() => setShowSetupGuide(true)}

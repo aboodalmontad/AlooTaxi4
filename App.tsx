@@ -7,7 +7,7 @@ import Login from './components/auth/Login';
 import CustomerView from './components/customer/CustomerView';
 import DriverView from './components/driver/DriverView';
 import AdminDashboard from './components/admin/AdminDashboard';
-import { appInitialization } from './services/supabase';
+import { supabase, getUserProfile, signOut } from './services/supabase';
 import NotificationPopup from './components/ui/NotificationPopup';
 import ActivationScreen from './components/auth/ActivationScreen';
 
@@ -32,28 +32,49 @@ const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [initError, setInitError] = useState<Error | null>(null);
 
-  // Wait for app initialization (like creating the admin user) to complete
+  // Listen to Supabase auth state changes
   useEffect(() => {
-    appInitialization
-      .then(() => {
-        // In a real app, you would also check for a valid session token here
-        setLoading(false);
-      })
-      .catch((err) => {
-        console.error("Application initialization failed:", err);
-        setInitError(err as Error);
-        setLoading(false);
+      setLoading(true);
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+          if (session?.user) {
+              try {
+                  const profile = await getUserProfile(session.user.id);
+                  if (profile) {
+                      // Combine auth data with profile data
+                      setUser({ ...session.user, ...profile });
+                  } else {
+                      // This might happen if profile creation fails after signup
+                      console.error("User has a session but no profile found. Logging out.");
+                      await signOut();
+                      setUser(null);
+                  }
+              } catch (err) {
+                  console.error("Failed to fetch user profile:", err);
+                  setInitError(err as Error);
+                  await signOut();
+                  setUser(null);
+              }
+          } else {
+              setUser(null);
+          }
+          setLoading(false);
       });
+
+      // Cleanup subscription on unmount
+      return () => {
+          subscription.unsubscribe();
+      };
   }, []);
 
   const login = (userData: User) => {
+    // This function is now mainly used by the ActivationScreen to update the user state
+    // after a custom verification flow.
     setUser(userData);
-    // In a real app, save session to localStorage
   };
 
-  const logout = () => {
+  const logout = async () => {
+    await signOut();
     setUser(null);
-    // In a real app, clear session from localStorage
   };
   
   const authContextValue = useMemo(() => ({ user, login, logout }), [user]);
@@ -66,7 +87,7 @@ const App: React.FC = () => {
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
           </svg>
-          <span className="ms-3 text-lg">جاري تهيئة التطبيق...</span>
+          <span className="ms-3 text-lg">جاري تحميل الجلسة...</span>
         </div>
       );
     }
@@ -96,7 +117,7 @@ const App: React.FC = () => {
       return <Login />;
     }
     
-    // Manual verification check
+    // Manual verification check from our public.users table
     if (!user.is_verified) {
         return <ActivationScreen user={user} onActivationSuccess={login} />;
     }
@@ -110,6 +131,7 @@ const App: React.FC = () => {
       case 'province_admin':
         return <AdminDashboard />;
       default:
+        logout(); // If user has invalid role, log them out
         return <Login />;
     }
   };
