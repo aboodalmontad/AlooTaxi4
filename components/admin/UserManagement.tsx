@@ -79,11 +79,11 @@ const UserManagement: React.FC = () => {
             setNotification({ message: `تم تجهيز رسالة واتساب بالكود للمستخدم ${user.name}`, type: 'info' });
         } else {
             let errorMessage = `فشل في حفظ كود التفعيل للمستخدم ${user.name}.`;
-            // Check for the specific schema cache error
-            if (result.message && (result.message.includes("does not exist") || result.message.includes("Could not find the 'activation_code' column"))) {
+            // Check for the specific schema cache error using the error code
+            if (result.error && (result.error.code === '42703' || result.error.message.includes("Could not find the 'activation_code' column"))) {
                  errorMessage = 'خطأ: حقل "activation_code" غير موجود. يرجى تشغيل سكربت الإعداد وتحديث مخطط API كما هو موضح في دليل الإعداد.';
-            } else if (result.message) {
-                 errorMessage += ` السبب: ${result.message}`;
+            } else if (result.error) {
+                 errorMessage += ` السبب: ${result.error.message}`;
             }
             setNotification({ message: errorMessage, type: 'error' });
         }

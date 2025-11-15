@@ -25,12 +25,19 @@ const PricingSettings: React.FC = () => {
         e.preventDefault();
         setSaving(true);
         try {
-            const success = await updateSettings(settings);
-            if(success) {
+            const result = await updateSettings(settings);
+            if (result.success) {
                 setNotification({ message: 'تم حفظ الإعدادات بنجاح!', type: 'success' });
                 await refetchSettings();
             } else {
-                setNotification({ message: 'فشل في حفظ الإعدادات.', type: 'error' });
+                let errorMessage = 'فشل في حفظ الإعدادات.';
+                // PostgREST error code '42703' is 'undefined_column'
+                if (result.error && (result.error.code === '42703' || result.error.message.includes("schema cache"))) {
+                    errorMessage = 'فشل الحفظ: لم يتم تحديث مخطط قاعدة البيانات. بعد تشغيل سكربت الإعداد، يرجى الذهاب إلى قسم "API Docs" في Supabase والضغط على "Reload schema".';
+                } else if (result.error) {
+                    errorMessage += ` السبب: ${result.error.message}`;
+                }
+                setNotification({ message: errorMessage, type: 'error' });
             }
         } catch (error) {
             console.error("Failed to save settings:", error);
@@ -102,6 +109,25 @@ const PricingSettings: React.FC = () => {
                         className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500"
                     />
                     <p className="text-xs text-slate-500 mt-1">سيظهر هذا الرقم للزبائن للتواصل في حال وجود مشكلة.</p>
+                </div>
+                <div className="pt-4 border-t border-slate-700">
+                    <h2 className="text-xl font-bold text-sky-400 mb-4">إعدادات خدمات الخرائط</h2>
+                    <label htmlFor="ors_api_key" className="block text-sm font-medium text-slate-300 mb-2">مفتاح API لخدمة OpenRouteService</label>
+                    <input
+                        type="text"
+                        id="ors_api_key"
+                        name="ors_api_key"
+                        value={settings.ors_api_key || ''}
+                        onChange={handleInputChange}
+                        className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                        placeholder="أدخل مفتاح API هنا"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">
+                        هذا المفتاح ضروري لعمل الخرائط وحساب المسافات. يمكنك الحصول عليه من
+                        <a href="https://openrouteservice.org/" target="_blank" rel="noopener noreferrer" className="text-sky-400 hover:underline mx-1">
+                            موقع OpenRouteService
+                        </a>.
+                    </p>
                 </div>
                 <div className="pt-4">
                     <button type="submit" disabled={saving} className="w-full bg-sky-600 hover:bg-sky-500 text-white font-bold py-3 px-4 rounded-lg transition-transform transform hover:scale-105 disabled:bg-slate-500 disabled:cursor-not-allowed flex justify-center items-center">

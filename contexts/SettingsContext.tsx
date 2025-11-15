@@ -18,6 +18,7 @@ export const defaultSettings: AppSettings = {
         [VehicleType.Motorcycle]: 0.6,
     },
     manager_phone: '0912345678',
+    ors_api_key: null,
 };
 
 interface SettingsContextType {

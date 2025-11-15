@@ -83,13 +83,13 @@ export const getSettings = async (): Promise<AppSettings | null> => {
     return data;
 };
 
-export const updateSettings = async (settings: Partial<AppSettings>): Promise<boolean> => {
+export const updateSettings = async (settings: Partial<AppSettings>): Promise<{ success: boolean; error?: { message: string; code: string; } }> => {
     const { error } = await supabase.from('settings').update(settings).eq('id', 1);
     if (error) {
-        console.error('Error updating settings:', error.message);
-        return false;
+        console.error('Error updating settings:', error);
+        return { success: false, error: { message: error.message, code: error.code } };
     }
-    return true;
+    return { success: true };
 };
 
 export const getDashboardStats = async () => {
@@ -110,15 +110,15 @@ export const getDashboardStats = async () => {
     };
 };
 
-export const setUserActivationCode = async (userId: string, code: string): Promise<{ success: boolean; message?: string }> => {
+export const setUserActivationCode = async (userId: string, code: string): Promise<{ success: boolean; error?: { message: string; code: string; } }> => {
     const { error } = await supabase
         .from('users')
         .update({ activation_code: code })
         .eq('id', userId);
 
     if (error) {
-        console.error('Error setting activation code:', error.message);
-        return { success: false, message: error.message };
+        console.error('Error setting activation code:', error);
+        return { success: false, error: { message: error.message, code: error.code } };
     }
     return { success: true };
 };

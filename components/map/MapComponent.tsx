@@ -57,9 +57,10 @@ interface MapComponentProps {
   zoom?: number;
   markers?: MarkerData[];
   route?: LatLngTuple[];
+  routeType?: 'road' | 'straight';
 }
 
-const MapComponent: React.FC<MapComponentProps> = ({ center, zoom = 13, markers = [], route = [] }) => {
+const MapComponent: React.FC<MapComponentProps> = ({ center, zoom = 13, markers = [], route = [], routeType = 'road' }) => {
   const mapRef = useRef<Map>(null);
 
   useEffect(() => {
@@ -75,6 +76,10 @@ const MapComponent: React.FC<MapComponentProps> = ({ center, zoom = 13, markers 
       clearTimeout(timer);
     };
   }, []); // Empty dependency array ensures this runs once after the component mounts.
+
+  const routePathOptions = routeType === 'straight'
+    ? { color: '#f59e0b', weight: 5, opacity: 0.9, dashArray: '10, 10' } // Amber, dashed
+    : { color: '#1e40af', weight: 5, opacity: 0.8 }; // Blue, solid
 
 
   return (
@@ -103,7 +108,7 @@ const MapComponent: React.FC<MapComponentProps> = ({ center, zoom = 13, markers 
         </Marker>
       ))}
 
-      {route.length > 0 && <Polyline positions={route} color="#1e40af" weight={5} opacity={0.8} />}
+      {route.length > 0 && <Polyline positions={route} pathOptions={routePathOptions} />}
     </MapContainer>
   );
 };

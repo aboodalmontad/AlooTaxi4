@@ -1,4 +1,3 @@
-import { ORS_API_KEY } from '../constants';
 
 const BASE_URL = 'https://api.openrouteservice.org';
 
@@ -7,11 +6,11 @@ interface LngLat {
   lat: number;
 }
 
-export const getRoute = async (start: LngLat, end: LngLat) => {
+export const getRoute = async (start: LngLat, end: LngLat, apiKey: string) => {
   const response = await fetch(`${BASE_URL}/v2/directions/driving-car`, {
     method: 'POST',
     headers: {
-      'Authorization': ORS_API_KEY,
+      'Authorization': apiKey,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
@@ -19,6 +18,9 @@ export const getRoute = async (start: LngLat, end: LngLat) => {
     }),
   });
   if (!response.ok) {
+    if (response.status === 403) {
+      throw new Error('API_KEY_INVALID');
+    }
     const errorBody = await response.text();
     console.error(`ORS getRoute failed with status ${response.status}:`, errorBody);
     // Try to parse the error for a more specific message
@@ -35,20 +37,23 @@ export const getRoute = async (start: LngLat, end: LngLat) => {
   return response.json();
 };
 
-// Corrected the URL endpoint for geocoding services by removing the /v2 prefix.
-export const getAutocomplete = async (query: string, focusPoint?: LngLat): Promise<any[]> => {
+// Corrected to use GET and the v1 geocode endpoint as per ORS documentation.
+export const getAutocomplete = async (query: string, apiKey: string, focusPoint?: LngLat): Promise<any[]> => {
   const params = new URLSearchParams({
-    api_key: ORS_API_KEY,
+    api_key: apiKey,
     text: query,
   });
   if (focusPoint) {
-    params.append('focus.point.lon', focusPoint.lng.toString());
     params.append('focus.point.lat', focusPoint.lat.toString());
+    params.append('focus.point.lon', focusPoint.lng.toString());
   }
 
   const response = await fetch(`${BASE_URL}/geocode/autocomplete?${params.toString()}`);
 
   if (!response.ok) {
+    if (response.status === 403) {
+      throw new Error('API_KEY_INVALID');
+    }
     const errorBody = await response.text();
     console.error(`ORS getAutocomplete (GET) failed with status ${response.status}:`, errorBody);
     throw new Error('Failed to fetch suggestions');
@@ -58,23 +63,25 @@ export const getAutocomplete = async (query: string, focusPoint?: LngLat): Promi
   return data.features || [];
 };
 
-export const reverseGeocode = async (point: LngLat): Promise<string> => {
+// Corrected to use GET and the v1 geocode endpoint as per ORS documentation.
+export const reverseGeocode = async (point: LngLat, apiKey: string): Promise<string> => {
     const params = new URLSearchParams({
-        api_key: ORS_API_KEY,
-        'point.lon': point.lng.toString(),
-        'point.lat': point.lat.toString(),
-        size: '1'
+      api_key: apiKey,
+      'point.lat': point.lat.toString(),
+      'point.lon': point.lng.toString(),
     });
 
     const response = await fetch(`${BASE_URL}/geocode/reverse?${params.toString()}`);
 
     if (!response.ok) {
+        if (response.status === 403) {
+          throw new Error('API_KEY_INVALID');
+        }
         const errorBody = await response.text();
         console.error(`ORS reverseGeocode (GET) failed with status ${response.status}:`, errorBody);
         throw new Error('Failed to reverse geocode');
     }
     
     const data = await response.json();
-    // The 'label' property usually provides a good, full address.
     return data?.features?.[0]?.properties?.label || `${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}`;
 };

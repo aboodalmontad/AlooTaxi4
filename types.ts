@@ -56,4 +56,5 @@ export interface AppSettings {
     app_commission_percentage: number;
     vehicle_multipliers: { [key in VehicleType]: number };
     manager_phone: string;
+    ors_api_key?: string | null;
 }

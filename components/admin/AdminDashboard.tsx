@@ -4,7 +4,7 @@ import { LogOut, Map, Users, Settings, LayoutDashboard } from 'lucide-react';
 
 import DashboardHome from './DashboardHome';
 import UserManagement from './UserManagement';
-import AppSettings from './AppSettings';
+import PricingSettings from './PricingSettings';
 import MapComponent from '../map/MapComponent';
 import type { LatLngTuple } from 'leaflet';
 
@@ -53,7 +53,7 @@ const AdminDashboard: React.FC = () => {
         switch (activeView) {
             case 'dashboard': return <DashboardHome />;
             case 'users': return <UserManagement />;
-            case 'settings': return <AppSettings />;
+            case 'settings': return <PricingSettings />;
             case 'map': return <LiveMap />;
             default: return <DashboardHome />;
         }

@@ -94,6 +94,7 @@ CREATE TABLE public.settings (
         "سيارة VIP": 2.0, "ميكرو باص": 1.5, "دراجة": 0.6
     }',
     manager_phone text NULL DEFAULT '0912345678',
+    ors_api_key text NULL,
     CONSTRAINT settings_pkey PRIMARY KEY (id),
     CONSTRAINT settings_id_check CHECK ((id = 1))
 );

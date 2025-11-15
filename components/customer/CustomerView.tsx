@@ -1,9 +1,11 @@
+
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import type { LatLngTuple } from 'leaflet';
 import MapComponent from '../map/MapComponent';
 import { useGeolocation } from '../../hooks/useGeolocation';
-import { getRoute, getAutocomplete, reverseGeocode } from '../../services/ors';
-import { MapPin, LocateFixed, Search, X, Phone, AlertTriangle, Route, Clock, ChevronUp } from 'lucide-react';
+import { getAutocomplete } from '../../services/ors';
+import { getRouteOSRM, reverseGeocodeNominatim } from '../../services/osrm';
+import { MapPin, LocateFixed, Search, X, Phone, AlertTriangle, Route, Clock, ChevronUp, AlertCircle } from 'lucide-react';
 import { VEHICLE_ICONS } from '../../constants';
 import { VehicleType } from '../../types';
 import NotificationPopup from '../ui/NotificationPopup';
@@ -20,6 +22,22 @@ const formatSYP = (amount: number) => {
   }).format(amount);
 };
 
+// Calculates the great-circle distance between two points on Earth
+const getStraightLineDistance = (p1: LatLngTuple, p2: LatLngTuple): number => {
+    const R = 6371e3; // metres
+    const φ1 = p1[0] * Math.PI/180; // φ, λ in radians
+    const φ2 = p2[0] * Math.PI/180;
+    const Δφ = (p2[0]-p1[0]) * Math.PI/180;
+    const Δλ = (p2[1]-p1[1]) * Math.PI/180;
+
+    const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+              Math.cos(φ1) * Math.cos(φ2) *
+              Math.sin(Δλ/2) * Math.sin(Δλ/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+    return R * c; // in metres
+}
+
 
 const AddressInput: React.FC<{
     value: string;
@@ -28,7 +46,8 @@ const AddressInput: React.FC<{
     suggestions: any[];
     onSuggestionClick: (feature: any) => void;
     onClear: () => void;
-}> = ({ value, onValueChange, placeholder, suggestions, onSuggestionClick, onClear }) => {
+    disabled?: boolean;
+}> = ({ value, onValueChange, placeholder, suggestions, onSuggestionClick, onClear, disabled }) => {
     return (
         <div className="relative w-full">
             <Search className="absolute top-1/2 -translate-y-1/2 right-3 text-slate-400 h-5 w-5" />
@@ -38,7 +57,8 @@ const AddressInput: React.FC<{
                 value={value}
                 onChange={e => onValueChange(e.target.value)}
                 placeholder={placeholder}
-                className="w-full bg-slate-700 border border-slate-600 rounded-lg pr-10 pl-10 py-3 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 transition"
+                disabled={disabled}
+                className="w-full bg-slate-700 border border-slate-600 rounded-lg pr-10 pl-10 py-3 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 transition disabled:bg-slate-800 disabled:cursor-not-allowed"
             />
             {suggestions.length > 0 && (
                 <ul className="absolute bottom-full mb-2 w-full bg-slate-800 border border-slate-600 rounded-lg shadow-lg max-h-48 overflow-y-auto z-10">
@@ -69,6 +89,7 @@ const CustomerView: React.FC = () => {
     const [dropoffSuggestions, setDropoffSuggestions] = useState<any[]>([]);
 
     const [route, setRoute] = useState<LatLngTuple[]>([]);
+    const [routeType, setRouteType] = useState<'road' | 'straight'>('road');
     const [distance, setDistance] = useState<number>(0);
     const [duration, setDuration] = useState<number>(0);
     const [selectedVehicle, setSelectedVehicle] = useState<VehicleType>(VehicleType.Regular);
@@ -77,6 +98,11 @@ const CustomerView: React.FC = () => {
     const [isContactModalOpen, setIsContactModalOpen] = useState(false);
     const [routeError, setRouteError] = useState<string | null>(null);
     const [isPanelOpen, setIsPanelOpen] = useState(true);
+    const [isCalculatingRoute, setIsCalculatingRoute] = useState(false);
+
+    // Address search is an optional feature that requires an ORS API key.
+    // Other map services (routing, reverse geocoding) work without it.
+    const isAddressSearchAvailable = useMemo(() => !!settings.ors_api_key, [settings.ors_api_key]);
     
     useEffect(() => {
         if (lat && lng) {
@@ -91,13 +117,14 @@ const CustomerView: React.FC = () => {
     const handleSetPickup = useCallback(async (coords: LatLngTuple, address?: string) => {
         setIsPanelOpen(true);
         try {
-            const addr = address || await reverseGeocode({lat: coords[0], lng: coords[1]});
+            const addr = address || await reverseGeocodeNominatim({lat: coords[0], lng: coords[1]});
             setPickup({ coords, address: addr });
             setPickupQuery(addr);
             setPickupSuggestions([]);
         } catch (error) {
             console.error("Error reverse geocoding for pickup:", error);
             setNotification({ message: 'تعذر تحديد اسم الموقع. يرجى التحقق من اتصالك بالإنترنت.', type: 'error' });
+            // Set a fallback address
             setPickup({ coords, address: 'موقع محدد على الخريطة' });
             setPickupQuery('موقع محدد على الخريطة');
         }
@@ -106,28 +133,36 @@ const CustomerView: React.FC = () => {
     const handleSetDropoff = useCallback(async (coords: LatLngTuple, address?: string) => {
         setIsPanelOpen(true);
         try {
-            const addr = address || await reverseGeocode({lat: coords[0], lng: coords[1]});
+            const addr = address || await reverseGeocodeNominatim({lat: coords[0], lng: coords[1]});
             setDropoff({ coords, address: addr });
             setDropoffQuery(addr);
             setDropoffSuggestions([]);
         } catch (error) {
             console.error("Error reverse geocoding for dropoff:", error);
             setNotification({ message: 'تعذر تحديد اسم الموقع. يرجى التحقق من اتصالك بالإنترنت.', type: 'error' });
+            // Set a fallback address
             setDropoff({ coords, address: 'موقع محدد على الخريطة' });
             setDropoffQuery('موقع محدد على الخريطة');
         }
     }, []);
 
     const fetchSuggestions = useCallback(async (query: string, setter: React.Dispatch<any[]>) => {
+        if (!settings.ors_api_key) {
+            return;
+        }
         try {
             const focusPoint = lat && lng ? { lat, lng } : undefined;
-            const features = await getAutocomplete(query, focusPoint);
+            const features = await getAutocomplete(query, settings.ors_api_key, focusPoint);
             setter(features);
         } catch (error) {
             console.error("Error fetching suggestions:", error);
-            setNotification({ message: 'تعذر جلب اقتراحات العناوين. يرجى التحقق من اتصالك بالإنترنت.', type: 'error' });
+            let message = 'تعذر جلب اقتراحات العناوين. يرجى التحقق من اتصالك بالإنترنت.';
+            if (error instanceof Error && error.message === 'API_KEY_INVALID') {
+                message = 'خدمة البحث عن العناوين غير متاحة حالياً بسبب مشكلة في الإعدادات.';
+            }
+            setNotification({ message, type: 'error' });
         }
-    }, [lat, lng]);
+    }, [lat, lng, settings.ors_api_key]);
 
     useEffect(() => {
         const handler = setTimeout(() => {
@@ -143,48 +178,49 @@ const CustomerView: React.FC = () => {
         return () => clearTimeout(handler);
     }, [dropoffQuery, fetchSuggestions, dropoff?.address]);
     
-    useEffect(() => {
-        const calculateRoute = async () => {
-            if (pickup && dropoff) {
-                setRouteError(null); // Clear previous errors when recalculating
-                try {
-                    const routeData = await getRoute(
-                        { lat: pickup.coords[0], lng: pickup.coords[1] },
-                        { lat: dropoff.coords[0], lng: dropoff.coords[1] }
-                    );
+    const calculateRoute = useCallback(async () => {
+        if (pickup && dropoff) {
+            setIsCalculatingRoute(true);
+            setRouteError(null);
+            setRoute([]); // Clear previous route
+            setDistance(0);
+            setDuration(0);
 
-                    if (routeData && routeData.features && routeData.features.length > 0 && routeData.features[0].geometry) {
-                        const routeCoords = routeData.features[0].geometry.coordinates.map((c: number[]) => [c[1], c[0]] as LatLngTuple);
-                        const summary = routeData.features[0].properties.summary;
-                        setRoute(routeCoords);
-                        setDistance(summary.distance); // in meters
-                        setDuration(summary.duration); // in seconds
-                        setTripStatus('pricing');
-                    } else {
-                        console.warn("No route returned from ORS API for the selected points.");
-                        setRouteError('تعذر إيجاد مسار بين النقطتين المحددتين. الرجاء تجربة مواقع مختلفة.');
-                        setRoute([]);
-                        setDistance(0);
-                        setDuration(0);
-                        setTripStatus('pricing'); // Keep panel open to show error
-                    }
-                } catch (error) {
-                    console.error("Error fetching route from ORS:", error);
-                    let userMessage = 'تعذر حساب المسار. يرجى التحقق من اتصالك بالإنترنت.';
-                    // Check for the specific distance limit error from the API
-                    if (error instanceof Error && error.message.includes('exceed the server configuration limits')) {
-                        userMessage = 'المسافة بين النقطتين كبيرة جداً ولا يمكن حساب مسار لها.';
-                    }
-                    setRouteError(userMessage);
-                    setRoute([]);
-                    setDistance(0);
-                    setDuration(0);
-                    setTripStatus('pricing'); // Keep panel open to show error
+            try {
+                const routeData = await getRouteOSRM(
+                    { lat: pickup.coords[0], lng: pickup.coords[1] },
+                    { lat: dropoff.coords[0], lng: dropoff.coords[1] }
+                );
+
+                setRoute(routeData.geometry);
+                setRouteType('road'); // Always a road route now
+                setDistance(routeData.distance);
+                setDuration(routeData.duration);
+                setTripStatus('pricing');
+
+            } catch (error) {
+                console.error("Error fetching route from OSRM:", error);
+                let userMessage = 'تعذر حساب المسار. يرجى التحقق من اتصالك بالإنترنت.';
+                if (error instanceof Error && (error.message.includes('No route found') || error.message.includes('Failed to fetch'))) {
+                    userMessage = 'تعذر إيجاد مسار بين النقطتين المحددتين. يرجى التأكد من أن المواقع على طرق يمكن الوصول إليها.';
                 }
+                setRouteError(userMessage);
+                // We keep the trip status as pricing to show the error in the panel.
+                setTripStatus('pricing');
+            } finally {
+                setIsCalculatingRoute(false);
             }
-        };
-        calculateRoute();
+        }
     }, [pickup, dropoff]);
+
+    useEffect(() => {
+        // Debounce route calculation to avoid excessive API calls while dragging markers
+        const handler = setTimeout(() => {
+             calculateRoute();
+        }, 300);
+       
+        return () => clearTimeout(handler);
+    }, [pickup, dropoff, calculateRoute]);
 
     // Automatically open the panel when pricing information is ready or an error occurs
     useEffect(() => {
@@ -236,7 +272,7 @@ const CustomerView: React.FC = () => {
             </button>
             
             <div className="flex-grow">
-                 <MapComponent center={mapCenter} markers={markers} route={route} />
+                 <MapComponent center={mapCenter} markers={markers} route={route} routeType={routeType} />
             </div>
 
             <div className={`absolute bottom-0 left-0 right-0 bg-slate-800/80 backdrop-blur-md rounded-t-2xl shadow-2xl z-[400] transition-transform duration-300 ease-in-out ${isPanelOpen ? 'translate-y-0' : 'translate-y-[calc(100%-56px)]'}`}>
@@ -248,6 +284,12 @@ const CustomerView: React.FC = () => {
                     <ChevronUp className={`h-8 w-8 text-slate-400 transition-transform duration-300 ${!isPanelOpen ? 'rotate-180' : ''}`} />
                 </button>
                 <div className="p-4 pt-0">
+                    {!isAddressSearchAvailable && (
+                        <div className="bg-amber-900/50 border border-amber-700 text-amber-300 p-3 rounded-lg mb-4 text-center flex items-center justify-center gap-3">
+                            <AlertTriangle className="h-6 w-6 flex-shrink-0" />
+                            <p>ميزة البحث عن العناوين غير مفعّلة. باقي خدمات الخرائط تعمل بشكل طبيعي.</p>
+                        </div>
+                    )}
                     {tripStatus === 'idle' || tripStatus === 'pricing' ? (
                     <>
                     <div className="flex flex-col md:flex-row gap-4 mb-4">
@@ -260,6 +302,7 @@ const CustomerView: React.FC = () => {
                                 suggestions={pickupSuggestions}
                                 onSuggestionClick={(f) => handleSetPickup([f.geometry.coordinates[1], f.geometry.coordinates[0]], f.properties.label)}
                                 onClear={() => { setPickup(null); setPickupQuery(''); setRoute([]); setDistance(0); setDuration(0); setTripStatus('idle'); setRouteError(null); }}
+                                disabled={!isAddressSearchAvailable}
                              />
                         </div>
                          <div className="flex-1 flex items-center gap-2">
@@ -271,6 +314,7 @@ const CustomerView: React.FC = () => {
                                 suggestions={dropoffSuggestions}
                                 onSuggestionClick={(f) => handleSetDropoff([f.geometry.coordinates[1], f.geometry.coordinates[0]], f.properties.label)}
                                 onClear={() => { setDropoff(null); setDropoffQuery(''); setRoute([]); setDistance(0); setDuration(0); setTripStatus('idle'); setRouteError(null); }}
+                                disabled={!isAddressSearchAvailable}
                              />
                         </div>
                         <button onClick={() => lat && lng && handleSetPickup([lat,lng])} className="p-3 bg-sky-600 hover:bg-sky-500 rounded-lg text-white transition">
@@ -281,18 +325,19 @@ const CustomerView: React.FC = () => {
                     {tripStatus === 'pricing' && (
                     <div className="animate-fade-in">
                         {routeError ? (
-                            <div className="flex items-center justify-center gap-3 bg-amber-900/50 border border-amber-700 text-amber-300 p-4 rounded-lg my-2">
+                            <div className="flex items-center justify-center gap-3 bg-red-900/50 border border-red-700 text-red-300 p-4 rounded-lg my-2">
                                 <AlertTriangle className="h-6 w-6 flex-shrink-0" />
                                 <p className="font-semibold text-center">{routeError}</p>
                             </div>
-                        ) : settingsLoading ? (
+                        ) : (settingsLoading || isCalculatingRoute) ? (
                             <div className="flex items-center justify-center h-48 text-slate-400">
                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-sky-400"></div>
-                               <span className="ms-3">جاري تحميل التسعيرة...</span>
+                               <span className="ms-3">{settingsLoading ? 'جاري تحميل التسعيرة...' : 'جاري حساب المسار...'}</span>
                            </div>
                         ) : (
                         <>
-                            {distance > 0 && !routeError && (
+                            {distance > 0 ? (
+                                <>
                                 <div className="bg-slate-900/50 p-3 rounded-lg mb-4 flex items-center justify-around text-center border border-slate-600">
                                     <div className="flex items-center gap-3">
                                         <Route className="h-6 w-6 text-sky-400" />
@@ -301,40 +346,45 @@ const CustomerView: React.FC = () => {
                                             <p className="text-white text-lg font-bold">{(distance / 1000).toFixed(1)} كم</p>
                                         </div>
                                     </div>
-                                    <div className="w-px h-10 bg-slate-600"></div> {/* Divider */}
-                                    <div className="flex items-center gap-3">
-                                        <Clock className="h-6 w-6 text-sky-400" />
-                                        <div>
-                                            <p className="text-slate-400 text-xs">الوقت المقدر</p>
-                                            <p className="text-white text-lg font-bold">{Math.round(duration / 60)} دقيقة</p>
+                                    {duration > 0 && (
+                                        <>
+                                        <div className="w-px h-10 bg-slate-600"></div> {/* Divider */}
+                                        <div className="flex items-center gap-3">
+                                            <Clock className="h-6 w-6 text-sky-400" />
+                                            <div>
+                                                <p className="text-slate-400 text-xs">الوقت المقدر</p>
+                                                <p className="text-white text-lg font-bold">{Math.round(duration / 60)} دقيقة</p>
+                                            </div>
                                         </div>
-                                    </div>
+                                        </>
+                                    )}
                                 </div>
-                            )}
-                            <h3 className="text-white text-lg font-semibold mb-3">اختر نوع المركبة:</h3>
-                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
-                                {Object.values(VehicleType).map((vehicleKey) => {
-                                    const Icon = VEHICLE_ICONS[vehicleKey];
-                                    if (!Icon || !settings || settings.vehicle_multipliers[vehicleKey] === undefined) return null;
+                                <h3 className="text-white text-lg font-semibold mb-3">اختر نوع المركبة:</h3>
+                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
+                                    {Object.values(VehicleType).map((vehicleKey) => {
+                                        const Icon = VEHICLE_ICONS[vehicleKey];
+                                        if (!Icon || !settings || settings.vehicle_multipliers[vehicleKey] === undefined) return null;
 
-                                    const isActive = selectedVehicle === vehicleKey;
-                                    return (
-                                        <button key={vehicleKey} onClick={() => setSelectedVehicle(vehicleKey)} className={`p-3 rounded-lg text-center transition ${isActive ? 'bg-sky-600 text-white ring-2 ring-sky-300' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}>
-                                            <Icon className="mx-auto h-8 w-8 mb-2" />
-                                            <span className="block text-sm font-medium">{vehicleKey}</span>
-                                            <span className="block text-xs font-bold text-sky-300 mt-1">{formatSYP(calculatePrice(vehicleKey))}</span>
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                            <div className="flex gap-4">
-                                <button onClick={handleRequestTrip} className="flex-1 bg-green-600 hover:bg-green-500 text-white font-bold py-3 px-4 rounded-lg transition-transform transform hover:scale-105">
-                                    تأكيد الطلب الآن
-                                </button>
-                                 <button className="bg-slate-600 hover:bg-slate-500 text-white font-bold py-3 px-4 rounded-lg transition">
-                                    جدولة الرحلة
-                                </button>
-                            </div>
+                                        const isActive = selectedVehicle === vehicleKey;
+                                        return (
+                                            <button key={vehicleKey} onClick={() => setSelectedVehicle(vehicleKey)} className={`p-3 rounded-lg text-center transition ${isActive ? 'bg-sky-600 text-white ring-2 ring-sky-300' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}>
+                                                <Icon className="mx-auto h-8 w-8 mb-2" />
+                                                <span className="block text-sm font-medium">{vehicleKey}</span>
+                                                <span className="block text-xs font-bold text-sky-300 mt-1">{formatSYP(calculatePrice(vehicleKey))}</span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                                <div className="flex gap-4">
+                                    <button onClick={handleRequestTrip} className="flex-1 bg-green-600 hover:bg-green-500 text-white font-bold py-3 px-4 rounded-lg transition-transform transform hover:scale-105" disabled={distance === 0}>
+                                        تأكيد الطلب الآن
+                                    </button>
+                                     <button className="bg-slate-600 hover:bg-slate-500 text-white font-bold py-3 px-4 rounded-lg transition" disabled={distance === 0}>
+                                        جدولة الرحلة
+                                    </button>
+                                </div>
+                                </>
+                            ) : null}
                         </>
                         )}
                     </div>
